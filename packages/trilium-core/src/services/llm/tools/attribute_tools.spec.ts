@@ -196,6 +196,27 @@ describe("attribute_tools", () => {
             expect(result.message).toContain("attributeId");
         });
 
+        it("sets and toggles the inheritable flag in every mode", () => {
+            const note = createNote("Inheritable set host");
+            const call = (args: object) => cls.init(() => getTool("set_attribute").execute({
+                noteId: note.noteId, type: "label", name: "color", value: "red", ...args
+            }));
+
+            call({ isInheritable: true });
+            expect(note.getOwnedLabels("color").map((l) => l.isInheritable)).toEqual([ true ]);
+
+            call({});
+            expect(note.getOwnedLabels("color").map((l) => l.isInheritable)).toEqual([ true ]);
+
+            const [ color ] = note.getOwnedLabels("color");
+            call({ attributeId: color.attributeId, isInheritable: false });
+            expect(note.getOwnedLabels("color").map((l) => l.isInheritable)).toEqual([ false ]);
+
+            call({ mode: "add", value: "blue", isInheritable: true });
+            expect(note.getOwnedLabels("color").map((l) => [ l.value, l.isInheritable ]))
+                .toEqual([ [ "red", false ], [ "blue", true ] ]);
+        });
+
         it("rejects a missing note, protected note, and missing relation target", () => {
             expect(getTool("set_attribute").execute({ noteId: "missing", type: "label", name: "x" }))
                 .toEqual({ error: "Note not found" });

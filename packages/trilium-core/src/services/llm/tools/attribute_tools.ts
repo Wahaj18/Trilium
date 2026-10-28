@@ -4,10 +4,18 @@
 
 import attributeService from "../../../services/attributes.js";
 import becca from "../../../becca/becca.js";
+import type BAttribute from "../../../becca/entities/battribute.js";
 import { z } from "zod";
 
 import { flag, getLlmNote, isAttributeVisibleToLlm } from "./helpers.js";
 import { defineTools } from "./tool_registry.js";
+
+function setInheritable(attribute: BAttribute | undefined, isInheritable: boolean | undefined) {
+    if (attribute && isInheritable !== undefined && attribute.isInheritable !== isInheritable) {
+        attribute.isInheritable = isInheritable;
+        attribute.save();
+    }
+}
 
 export const attributeTools = defineTools({
     get_attributes: {
@@ -63,10 +71,11 @@ export const attributeTools = defineTools({
             name: z.string().describe("The attribute name"),
             value: z.string().optional().describe("The attribute value (for relations, this must be a target noteId)"),
             mode: z.enum(["set", "add"]).optional().describe("'set' (default) updates the existing attribute of this name; 'add' creates another one next to it, for multi-valued labels such as #tag"),
-            attributeId: z.string().optional().describe("The ID of the attribute to update (from get_attributes), when several share the name; type and name must match it. Not used with mode 'add'")
+            attributeId: z.string().optional().describe("The ID of the attribute to update (from get_attributes), when several share the name; type and name must match it. Not used with mode 'add'"),
+            isInheritable: z.boolean().optional().describe("Whether child notes inherit the attribute. When omitted, an existing attribute keeps its flag and a new one is not inheritable")
         }),
         mutates: true,
-        execute: ({ noteId, type, name, value = "", mode = "set", attributeId }) => {
+        execute: ({ noteId, type, name, value = "", mode = "set", attributeId, isInheritable }) => {
             const note = getLlmNote(noteId);
             if (!note) {
                 return { error: "Note not found" };
@@ -106,9 +115,10 @@ export const attributeTools = defineTools({
                     attribute.markAsDeleted();
                 }
                 if (mode === "add" || target) {
-                    note.addAttribute(type, disabledName, value);
+                    note.addAttribute(type, disabledName, value, isInheritable);
                 } else {
                     note.setAttribute(type, disabledName, value);
+                    setInheritable(note.getOwnedAttributes(type, disabledName)[0], isInheritable);
                 }
 
                 return {
@@ -132,11 +142,12 @@ export const attributeTools = defineTools({
             const result = { success: true, noteId: note.noteId, type, name, value };
 
             if (mode === "add") {
-                note.addAttribute(type, name, value);
+                note.addAttribute(type, name, value, isInheritable);
                 return result;
             }
 
             if (target) {
+                setInheritable(target, isInheritable);
                 const previousValue = target.value;
                 if (previousValue === value) {
                     return result;
@@ -149,6 +160,7 @@ export const attributeTools = defineTools({
             const [ existing, ...others ] = note.getOwnedAttributes(type, name);
             const previousValue = existing?.value;
             note.setAttribute(type, name, value);
+            setInheritable(existing ?? note.getOwnedAttributes(type, name)[0], isInheritable);
             if (previousValue === undefined || previousValue === value) {
                 return result;
             }
